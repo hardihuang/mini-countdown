@@ -4,14 +4,10 @@
   V1.1.0 Mar/1/2019 19:38 battery logo display battery level
   V1.2.0 Mar/1/2019 13:14 added countdown animation mode, with blinking last dot
   V1.2.1 Mar/2/2019 13:50 digite mode second countdown small font
-  
-
-
+  V1.2.2 Mar/2/2019 16:05 auto check battery  when boot up, and alert user if the product battery is low
+  V1.2.3 Mar/2/2019 18:23 countdown animation blinking dot change speed based on the time length
+  V1.2.4 Mar/2/2019 21:15 connect/disconnect charging cable charging animation alart //hardware update: A1 pull-down to usb port Vcc
 */
-
-
-
-
 
 #include <SPI.h>
 #include <Adafruit_GFX.h>
@@ -277,6 +273,7 @@ int state = 0;//0=set time; 1=countdown; 2=alart;
 int countDownData[6] = {0, 0, 0, 0, 0}; //minute,second,off/on/pause,current minute, current second
 bool mode = 1;// 0=animation| 1=digit
 unsigned long countDownTimer = millis();
+int accurateDose=0;
 unsigned long aniTimer = millis();
 int aniState=0;
 int tempA;
@@ -304,6 +301,10 @@ unsigned long btnTimer[6];
 int btnState[6]={0,0,0,0,0,0}; //0->no press 1-> new press; 2-> short press; 3-> long press;
 int longPressTime[6]={800,800,2000,800,800,800};
 
+unsigned long battlevelTimer = millis()-300000;//offset to check when boot-up, if power low, alart the user when they turn on the machine
+int pcnt;//battery percentage
+
+
 //countdown animation
 double intervalSpeed;
 unsigned int pn;
@@ -311,10 +312,14 @@ int row;
 int left;
 unsigned long blinkDotTimer = millis();
 bool blinkDot=1;
+bool chargingState = 0;// 0=unplug;1=charging
+bool chargingFlag = 0;
 
- void setup() { 
+
+void setup() { 
   pinMode(power,OUTPUT);
-  pinMode(A2, INPUT);
+  pinMode(A2, INPUT);//battery level
+  pinMode(A1, INPUT);//charging state
   analogReference(INTERNAL);
   digitalWrite(power, HIGH);
   Serial.begin(9600);
@@ -336,25 +341,8 @@ bool blinkDot=1;
  void loop() { 
   getKey();
   autoPowerOff();
-  /*
-  Serial.print("[Key]: ");
-  Serial.print(key);
-  Serial.print(" [state]: ");
-  Serial.print(btnState[lastKey]);
-  Serial.print(" || CD3: ");
-  Serial.print(countDownData[3]);
-  Serial.print(" || CD4: ");
-  Serial.print(countDownData[4]);
-  Serial.print(" || DR0: ");
-  Serial.print(digitArr[0]);
-  Serial.print(" || DR1: ");
-  Serial.print(digitArr[1]);
-  Serial.print(" || DR2: ");
-  Serial.print(digitArr[2]);
-  Serial.print(" || DR3: ");
-  Serial.println(digitArr[3]);
-  */
-  
+  checkBatt();
+
   //control flow
   drawDisplay();
   switch(state){
@@ -425,6 +413,7 @@ bool blinkDot=1;
         }
       }else if(key == "C"){
         batteryInfo();
+        battlevelTimer = millis();//if user checked battery menually, then we reset the timer for auto-checking battery level
       }
       
       countDownData[1]=0;
@@ -445,6 +434,7 @@ bool blinkDot=1;
           matrix.write();
           delay(500);
           countDownData[2] = 0;
+          battlevelTimer = millis();//reset the auto-checking batt timer
         }
       }else if(key == "L"){
         if(countDownData[2] == 0){
@@ -461,8 +451,8 @@ bool blinkDot=1;
         
       }
       
-      if(countDownData[2]==1){
-        if(millis() - countDownTimer >= 1000){
+      if(countDownData[2]==1){      
+        if( millis() - countDownTimer>= 1000){//offset some extra commant time
           if(countDownData[4]>0){
             countDownData[4]--;
           }else{
@@ -504,7 +494,7 @@ bool blinkDot=1;
       }
       
     break;
-    case 2://alart mode
+    case 2:
 
     break;
   }
@@ -605,8 +595,10 @@ void drawDisplay(){
     if(left>0){
       matrix.fillRect(0,7-row,left,1,1);   
     }
-
-    if(millis()-blinkDotTimer>500){//
+    
+    //the blinking dot will change speed based on the time length
+    //200 is the 1 minute blinking speed( top speed), 1000 is the 90 minutes blinking speed(slowest speed)
+    if(millis()-blinkDotTimer>map(intervalSpeed,937,84375,200,1000)){ 
       blinkDot = !blinkDot;  
       blinkDotTimer = millis();
     }
@@ -680,7 +672,7 @@ void scrollMessage(String msg) {
       x -= 6;
     }
     matrix.write(); // Send bitmap to display
-    delay(35);
+    delay(40);
   }
   matrix.setCursor(0, 0);
 }
@@ -733,6 +725,146 @@ void blink3(){
   }  
 }
 
+void batteryReading(){
+  int sensorValue = analogRead(A2);    // Read Analog Value               // Calculate Battery Level (Percent)
+  int sum;
+  for(int i=0;i<5;i++){
+    sum += map(sensorValue, 900,1023,0,100);
+    delay(90);
+  }
+  pcnt = sum/5;
+}
+
+void lowBattAlart(){
+  matrix.fillScreen(LOW);
+  matrix.drawRect(0,3,1,2,1);
+  matrix.drawRect(1,2,7,4,1);
+  matrix.write();
+  delay(500);
+  
+  for(int i=0; i<2; i++){
+    matrix.fillScreen(LOW);
+    matrix.write();
+    tone(buzzPin, 200, 50);
+    delay(500);
+    
+    matrix.drawRect(0,3,1,2,1);
+    matrix.drawRect(1,2,7,4,1);
+    matrix.write();
+    noTone(buzzPin);
+    delay(500);
+  }  
+  delay(100);
+  
+  matrix.fillScreen(LOW);
+  matrix.write();
+  scrollMessage("battery Low");
+  matrix.fillScreen(LOW);  
+}
+
+void batteryInfo(){
+  
+  batteryReading();
+  matrix.fillScreen(LOW); 
+  if(chargingState == 0){//if we are not charging with usb
+    if(pcnt>0){
+      matrix.drawRect(0,3,1,2,1);
+      matrix.drawRect(1,2,7,4,1);
+    
+      if(pcnt>0 and pcnt<=20){
+        matrix.drawRect(6,3,1,2,1);
+      }else if(pcnt>20 and pcnt <=40){
+        matrix.drawRect(5,3,2,2,1);
+      }else if(pcnt>40 and pcnt <=60){
+        matrix.drawRect(4,3,3,2,1);
+      }else if(pcnt>60 and pcnt <=80){
+        matrix.drawRect(3,3,4,2,1);
+      }else if(pcnt >80 and pcnt <=100){
+        matrix.drawRect(2,3,5,2,1);
+      }
+      
+      matrix.write(); // Send bitmap to display  
+      delay(1500);
+    }else{//low power
+      lowBattAlart();
+    }
+  }else{
+    chargingAnimation();  
+  }
+}
+
+void chargingAnimation(){
+    matrix.fillScreen(LOW); 
+    for(int i=0;i<2;i++){
+      matrix.drawRect(0,3,1,2,1);
+      matrix.drawRect(1,2,7,4,1);
+      
+      for(int j=0;j<6;j++){
+        if(j==1){
+          matrix.drawRect(6,3,1,2,1);
+        }else if(j==2){
+          matrix.drawRect(5,3,2,2,1);
+        }else if(j==3){
+          matrix.drawRect(4,3,3,2,1);
+        }else if(j==4){
+          matrix.drawRect(3,3,4,2,1);
+        }else if(j==5){
+          matrix.drawRect(2,3,5,2,1);
+        }
+        matrix.write(); 
+        delay(200);
+      }
+      matrix.fillScreen(LOW); 
+      matrix.write();
+    }
+    matrix.fillScreen(LOW); 
+    matrix.write();
+    delay(250);
+}
+
+void checkBatt(){
+  chargingState=digitalRead(A1);
+  if(chargingState){
+    if(chargingFlag == 0)  {//just pluged in
+      if(countDownData[2]==1){
+        matrix.fillScreen(LOW);
+        matrix.drawBitmap(0,0,pause_bitmap,8,8,1);
+        matrix.write();
+        delay(500);
+        countDownData[2] = 0;
+      }
+      tone(buzzPin, 200, 100);//sound effect
+      delay(100);
+      tone(buzzPin, 600, 100);
+      delay(100);
+      chargingAnimation();
+      chargingFlag = 1;
+    }
+  }else{
+    if(chargingFlag){//just unpluged
+      if(countDownData[2]==1){
+        matrix.fillScreen(LOW);
+        matrix.drawBitmap(0,0,pause_bitmap,8,8,1);
+        matrix.write();
+        delay(500);
+        countDownData[2] = 0;
+      }
+      tone(buzzPin, 600, 100);//sound effect
+      delay(100);
+      tone(buzzPin, 200, 100);
+      delay(100);
+      batteryInfo();//display current battery level
+      chargingFlag = 0;
+    }else if(millis() - battlevelTimer>300000 and countDownData[2]!=1){//check battery status every 5 minutes
+      batteryReading();
+      if(pcnt<=0){
+        lowBattAlart();
+      }
+      battlevelTimer = millis();
+    }
+  }
+  
+}
 
 void autoPowerOff(){
   if(key!="0"){
@@ -742,46 +874,4 @@ void autoPowerOff(){
       digitalWrite(power,LOW)  ;
     }
   }
-}
-
-
-void batteryInfo(){
-  matrix.fillScreen(LOW);
-  matrix.write();
-  delay(50);
-  int sensorValue = analogRead(A2);    // Read Analog Value               // Calculate Battery Level (Percent)
-  int sum;
-  for(int i=0;i<5;i++){
-    sum += map(sensorValue, 900,1023,0,100);
-    delay(90);
-  }
-  int pcnt = sum/5;
-  Serial.print("pcnt: ");
-  Serial.println(pcnt);
-  
-  matrix.drawRect(0,3,1,2,1);
-  matrix.drawRect(1,2,7,4,1);
-
-  if(pcnt>0 and pcnt<=20){
-    matrix.drawRect(6,3,1,2,1);
-  }else if(pcnt>20 and pcnt <=40){
-    matrix.drawRect(5,3,2,2,1);
-  }else if(pcnt>40 and pcnt <=60){
-    matrix.drawRect(4,3,3,2,1);
-  }else if(pcnt>60 and pcnt <=80){
-    matrix.drawRect(3,3,4,2,1);
-  }else if(pcnt >80 and pcnt <=100){
-    matrix.drawRect(2,3,5,2,1);
-  }
-  
-  matrix.write(); // Send bitmap to display  
-  delay(2000);
-
-  if(pcnt <= 0){
-    matrix.fillScreen(LOW);
-    matrix.write();
-    scrollMessage("battery Low");
-    matrix.fillScreen(LOW);
-  }  
-
 }
