@@ -10,7 +10,6 @@
   V1.2.5 Mar/3/2019 14:06 user can check batt level while pausing
 
 
-
 */
 
 #include <SPI.h>
@@ -268,6 +267,25 @@ B00011100,
 B00011000,
 B00010000};
 
+const unsigned char PROGMEM speaker_bitmap[] =
+{B00000000,
+B00100010,
+B01101001,
+B11100101,
+B11100101,
+B01101001,
+B00100010,
+B00000000};
+
+const unsigned char PROGMEM mute_bitmap[] =
+{B00100010,
+B01000100,
+B10001000,
+B01000100,
+B00100010,
+B00010001,
+B00100010,
+B01000100};
 
 //data
 static unsigned char*  numbers[10] = {num0, num1, num2, num3, num4,num5,num6,num7,num8,num9};
@@ -276,14 +294,14 @@ int digitArr[4]={0,0,0,0};
 int state = 0;//0=set time; 1=countdown; 2=alart;
 int countDownData[6] = {0, 0, 0, 0, 0}; //minute,second,off/on/pause,current minute, current second
 bool mode = 1;// 0=animation| 1=digit
+bool mute=0;
 unsigned long countDownTimer = millis();
-int accurateDose=0;
 unsigned long aniTimer = millis();
 int aniState=0;
 int tempA;
 int tempB;
 int buzzPin = 3;
-int vibMotor = 12;
+int vibMotor = A5;
 int brightness = 1;
 int shortCut[2]={25,5};
 int autoPowerOffTime = 5;//10 minutes;
@@ -323,24 +341,38 @@ bool chargingFlag = 0;
 
 void setup() { 
   pinMode(power,OUTPUT);
+  digitalWrite(power, HIGH);
+    
+  pinMode(vibMotor, OUTPUT);
+  digitalWrite(vibMotor,LOW);
+  pinMode(buzzPin, OUTPUT);
+  digitalWrite(buzzPin, LOW);  
+
+  fetchCountDownData();
+    
+  matrix.setIntensity(brightness);
+  matrix.setRotation(0, 2);
+  greating();
+  
   pinMode(A2, INPUT);//battery level
   pinMode(A1, INPUT);//charging state
   analogReference(INTERNAL);
-  digitalWrite(power, HIGH);
-  Serial.begin(9600);
-  matrix.setIntensity(brightness);
-  matrix.setRotation(0, 2);
+
+  //Serial.begin(9600);
   pinMode(btnLeft, INPUT_PULLUP);
   pinMode(btnRight, INPUT_PULLUP);
   pinMode(btnSet, INPUT_PULLUP);
   pinMode(btnA, INPUT_PULLUP);
   pinMode(btnB, INPUT_PULLUP);
   pinMode(btnC, INPUT_PULLUP);
-  pinMode(buzzPin, OUTPUT);
-  digitalWrite(buzzPin, LOW);  
-  //greating();
-  fetchCountDownData();
-  delay(1000);
+
+
+  
+
+  //solve boot-up display 00 second first and then switch to real data bug
+  countDownData[2]=0;
+  countDownData[3]=countDownData[0];
+  countDownData[4]=countDownData[1];
  } 
 
  void loop() { 
@@ -422,8 +454,42 @@ void setup() {
           blink3();
         }
       }else if(key == "C"){
-        batteryInfo();
-        battlevelTimer = millis();//if user checked battery menually, then we reset the timer for auto-checking battery level
+        if(btnState[lastKey]==2){//short press check battery info
+          batteryInfo();
+          battlevelTimer = millis();//if user checked battery menually, then we reset the timer for auto-checking battery level
+        }else if(btnState[lastKey]==3){//long press to toggle mute mode
+          mute = !mute;
+          matrix.fillScreen(LOW);
+          if(mute){
+            matrix.drawBitmap(0,0,mute_bitmap,8,8,1);
+            matrix.write();
+            digitalWrite(vibMotor,HIGH);
+            delay(40);
+            digitalWrite(vibMotor,LOW);
+            delay(100);
+            digitalWrite(vibMotor,HIGH);
+            delay(40);
+            digitalWrite(vibMotor,LOW);
+            delay(100);
+            
+          }else{
+            matrix.drawBitmap(0,0,speaker_bitmap,8,8,1);
+            matrix.write();
+            digitalWrite(buzzPin, HIGH);
+            delay(1);
+            digitalWrite(buzzPin, LOW);
+            delay(100);
+            digitalWrite(buzzPin, HIGH);
+            delay(1);
+            digitalWrite(buzzPin, LOW);
+            delay(100);
+            
+          }
+          delay(1000);
+          writeCountDownData();
+          matrix.fillScreen(LOW);
+        }
+        
       }
       
       countDownData[1]=0;
@@ -480,13 +546,20 @@ void setup() {
                 matrix.fillScreen(LOW);
                 //matrix.drawBitmap(0,0,setAlarm_bitmap,8,8,0);
                 matrix.write();
-                tone(buzzPin, 415, 500);
-                delay(500);
                 
+                if(mute){
+                  digitalWrite(vibMotor,HIGH);
+                  delay(200);
+                  digitalWrite(vibMotor,LOW);
+                }else{
+                  tone(buzzPin, 415, 500);
+                  delay(500);
+                  noTone(buzzPin);
+                }
+
                 matrix.fillScreen(LOW);
                 matrix.drawBitmap(0,0,setAlarm_bitmap,8,8,1);
                 matrix.write();
-                noTone(buzzPin);
                 delay(500);
               }
               matrix.fillScreen(LOW);
@@ -527,9 +600,19 @@ void getKey(){
       }
       if(millis()-btnTimer[i] > longPressTime[i]){//long press for sure
         //Serial.print(" long press "); 
-        digitalWrite(buzzPin, HIGH);
-        delay(1);
-        digitalWrite(buzzPin, LOW);
+        if(lastKey != 5){//do not vib or buzz is we are toggling the mute mode
+          if(mute){
+            digitalWrite(vibMotor,HIGH);
+            delay(40);
+            digitalWrite(vibMotor,LOW);
+          }else{
+            digitalWrite(buzzPin, HIGH);
+            delay(1);
+            digitalWrite(buzzPin, LOW);
+          }
+        }
+        
+        
         btnState[i] = 3;
         key = hexaKeys[i];
         btnTimer[i] = millis();
@@ -542,9 +625,16 @@ void getKey(){
     }else{
       if(btnState[i] == 1 and key == "0")  {
         //Serial.print(" short press "); 
-        digitalWrite(buzzPin, HIGH);
-        delay(1);
-        digitalWrite(buzzPin, LOW);
+        if(mute){
+          digitalWrite(vibMotor,HIGH);
+          delay(40);
+          digitalWrite(vibMotor,LOW);
+        }else{
+          digitalWrite(buzzPin, HIGH);
+          delay(1);
+          digitalWrite(buzzPin, LOW);
+        }
+              
         key = hexaKeys[lastKey];
         btnState[i] = 2;
       }else{
@@ -690,24 +780,26 @@ void scrollMessage(String msg) {
   matrix.setCursor(0, 0);
 }
 
-
-
 void greating() {
   matrix.fillScreen(LOW);
   matrix.drawBitmap(0,0,countDown_bitmap,8,8,1);
   matrix.write();
-  tone(buzzPin, 415, 500);
-  tone(buzzPin, 415, 500);
-  delay(500 * 1.3);
-  tone(buzzPin, 466, 500);
-  delay(500 * 1.3);
-  tone(buzzPin, 370, 1000);
-  delay(1000 * 1.3);
-  noTone(buzzPin);
 
+   if(mute){
+    digitalWrite(vibMotor,HIGH);
+    delay(200);
+    digitalWrite(vibMotor,LOW);
+  }else{
+    tone(buzzPin, 415, 100);
+    delay(100 * 1.3);
+    tone(buzzPin, 466, 100);
+    delay(100 * 1.3);
+    tone(buzzPin, 370, 200);
+    delay(200 * 1.3);
+    noTone(buzzPin);
+  }
   matrix.fillScreen(LOW); // show black
   matrix.write();
-  delay(500);
 }
 
 void writeCountDownData() {
@@ -715,6 +807,7 @@ void writeCountDownData() {
   EEPROM.write(1, shortCut[0]);
   EEPROM.write(2, shortCut[1]);
   EEPROM.write(3, mode);
+  EEPROM.write(4, mute);
 }
 
 void fetchCountDownData() {
@@ -726,6 +819,7 @@ void fetchCountDownData() {
   if(mode>1){
     mode = 1;
   }
+  mute = EEPROM.read(4);
 }
 
 void blink3(){
@@ -758,7 +852,15 @@ void lowBattAlart(){
   for(int i=0; i<2; i++){
     matrix.fillScreen(LOW);
     matrix.write();
-    tone(buzzPin, 200, 50);
+    if(mute){
+      digitalWrite(vibMotor,HIGH);
+      delay(40);
+      digitalWrite(vibMotor,LOW);
+    }else{
+      tone(buzzPin, 200, 50);
+      delay(50);
+    }
+    
     delay(500);
     
     matrix.drawRect(0,3,1,2,1);
@@ -846,10 +948,18 @@ void checkBatt(){
         delay(500);
         countDownData[2] = 0;
       }
-      tone(buzzPin, 200, 100);//sound effect
-      delay(100);
-      tone(buzzPin, 600, 100);
-      delay(100);
+
+      if(mute){
+        digitalWrite(vibMotor,HIGH);
+        delay(40);
+        digitalWrite(vibMotor,LOW);
+      }else{
+        tone(buzzPin, 200, 100);//sound effect
+        delay(100);
+        tone(buzzPin, 600, 100);
+        delay(100);
+      }
+
       chargingAnimation();
       chargingFlag = 1;
     }
@@ -862,10 +972,18 @@ void checkBatt(){
         delay(500);
         countDownData[2] = 0;
       }
-      tone(buzzPin, 600, 100);//sound effect
-      delay(100);
-      tone(buzzPin, 200, 100);
-      delay(100);
+
+      if(mute){
+        digitalWrite(vibMotor,HIGH);
+        delay(40);
+        digitalWrite(vibMotor,LOW);
+      }else{
+        tone(buzzPin, 600, 100);//sound effect
+        delay(100);
+        tone(buzzPin, 200, 100);
+        delay(100);
+      }
+      
       batteryInfo();//display current battery level
       chargingFlag = 0;
     }else if(millis() - battlevelTimer>300000 and countDownData[2]!=1){//check battery status every 5 minutes
