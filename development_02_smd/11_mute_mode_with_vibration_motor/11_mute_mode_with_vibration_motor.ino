@@ -8,6 +8,7 @@
   V1.2.3 Mar/2/2019 18:23 countdown animation blinking dot change speed based on the time length
   V1.2.4 Mar/2/2019 21:15 connect/disconnect charging cable charging animation alart //hardware update: A1 pull-down to usb port Vcc
   V1.2.5 Mar/3/2019 14:06 user can check batt level while pausing
+  V1.2.6 Mar/4/2019 08:16 toggle mute mode while puasing
 
 
 */
@@ -458,36 +459,7 @@ void setup() {
           batteryInfo();
           battlevelTimer = millis();//if user checked battery menually, then we reset the timer for auto-checking battery level
         }else if(btnState[lastKey]==3){//long press to toggle mute mode
-          mute = !mute;
-          matrix.fillScreen(LOW);
-          if(mute){
-            matrix.drawBitmap(0,0,mute_bitmap,8,8,1);
-            matrix.write();
-            digitalWrite(vibMotor,HIGH);
-            delay(40);
-            digitalWrite(vibMotor,LOW);
-            delay(100);
-            digitalWrite(vibMotor,HIGH);
-            delay(40);
-            digitalWrite(vibMotor,LOW);
-            delay(100);
-            
-          }else{
-            matrix.drawBitmap(0,0,speaker_bitmap,8,8,1);
-            matrix.write();
-            digitalWrite(buzzPin, HIGH);
-            delay(1);
-            digitalWrite(buzzPin, LOW);
-            delay(100);
-            digitalWrite(buzzPin, HIGH);
-            delay(1);
-            digitalWrite(buzzPin, LOW);
-            delay(100);
-            
-          }
-          delay(1000);
-          writeCountDownData();
-          matrix.fillScreen(LOW);
+          muteToggle();
         }
         
       }
@@ -524,8 +496,13 @@ void setup() {
           mode = !mode;
           writeCountDownData();
         }else{
-          batteryInfo();
-          battlevelTimer = millis();
+          if(btnState[lastKey]==2){//short press
+            batteryInfo();
+            battlevelTimer = millis();
+          }else if(btnState[lastKey]==3){//long press
+            muteToggle();  
+          }
+          
         }
         
       }
@@ -1005,4 +982,37 @@ void autoPowerOff(){
       digitalWrite(power,LOW)  ;
     }
   }
+}
+
+void muteToggle(){
+  mute = !mute;
+  matrix.fillScreen(LOW);
+  if(mute){
+    matrix.drawBitmap(0,0,mute_bitmap,8,8,1);
+    matrix.write();
+    digitalWrite(vibMotor,HIGH);
+    delay(40);
+    digitalWrite(vibMotor,LOW);
+    delay(100);
+    digitalWrite(vibMotor,HIGH);
+    delay(40);
+    digitalWrite(vibMotor,LOW);
+    delay(100);
+    
+  }else{
+    matrix.drawBitmap(0,0,speaker_bitmap,8,8,1);
+    matrix.write();
+    digitalWrite(buzzPin, HIGH);
+    delay(1);
+    digitalWrite(buzzPin, LOW);
+    delay(100);
+    digitalWrite(buzzPin, HIGH);
+    delay(1);
+    digitalWrite(buzzPin, LOW);
+    delay(100);
+    
+  }
+  delay(1000);
+  writeCountDownData();
+  matrix.fillScreen(LOW);  
 }
