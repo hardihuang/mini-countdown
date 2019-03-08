@@ -352,7 +352,7 @@ void setup() {
   fetchCountDownData();
     
   matrix.setIntensity(brightness);
-  matrix.setRotation(0, 2);
+  matrix.setRotation(0, 0);
   greating();
   
   pinMode(A2, INPUT);//battery level
@@ -580,7 +580,7 @@ void getKey(){
         if(lastKey != 5){//do not vib or buzz is we are toggling the mute mode
           if(mute){
             digitalWrite(vibMotor,HIGH);
-            delay(40);
+            delay(30);
             digitalWrite(vibMotor,LOW);
           }else{
             digitalWrite(buzzPin, HIGH);
